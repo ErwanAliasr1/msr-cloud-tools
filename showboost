@@ -157,7 +157,7 @@ printf "%-10s %-12s %-12s %6s %6s %6s\n" "TIME" "C0_MCYC" "C0_ACYC" "UTIL" \
 
 total_time=0
 while :; do
-    t=$(printf "%(%H:%M:%S)T" -1)
+    t=$(date +'%H:%M:%S')
     m=$(rdmsr -p$cpu $IA32_MPERF -d)
     a=$(rdmsr -p$cpu $IA32_APERF -d)
     (( dm = m - lm ))
