@@ -30,11 +30,15 @@
 #
 # 12-Sep-2014   Brendan Gregg   Created this.
 
+micro_architecture="undef"
+
 ### MSR definitions
 IA32_MPERF=0xe7
 IA32_APERF=0xe8
-MSR_TURBO_RATIO_LIMIT1=0x1ae
-MSR_TURBO_RATIO_LIMIT1_MASK=15:8	# assuming 10 core package
+MSR_TURBO_RATIO_LIMIT_ONE_CPU=undef
+MSR_TURBO_RATIO_LIMIT_ONE_CPU_MASK=undef
+MSR_TURBO_RATIO_LIMIT_MAX_CPU=undef
+MSR_TURBO_RATIO_LIMIT_MAX_CPU_MASK=undef
 
 ### sanity check
 family=$(awk '/cpu family/ { print $NF; exit }' /proc/cpuinfo)
@@ -54,24 +58,77 @@ function usage {
 	exit
 }
 
+function fatal_error {
+    echo >&2 "ERROR: $@"
+    exit 1
+}
+
+check_env() {
 [[ "$1" == "-h" ]] && usage
 
 if [[ "$USER" != "root" ]]; then
-	echo >&2 "ERROR: needs root access. Exiting."
-	exit 1
+	fatal_error "needs root access. Exiting."
 fi
 
-if ! /sbin/modprobe msr; then
-	echo >&2 "ERROR: modprobe msr. Missing msr-tools package? Exiting."
-	exit 1
+if ! grep -q msr_class_cpu_callback /proc/kallsyms; then
+    if ! /sbin/modprobe msr; then
+        fatal_error "modprobe msr. Missing msr-tools package? Exiting."
+    fi
 fi
+
+if ! which cpuid &>/dev/null; then
+    fatal_error "We need cpuid to detect your CPU"
+    exit 1
+fi
+
+}
+
+detect_micro_architecture() {
+    cpuid -1 | grep "vendor_id" | grep -q "GenuineIntel"
+    if [ $? -ne 0 ]; then
+        fatal_error "Current tool only works on Intel Processors"
+    fi
+
+    synth=$(cpuid -1 | grep  "(synth)")
+    echo $synth | grep -qi "ivy bridge" && micro_architecture="ivy_bridge"
+
+    if [ "$micro_architecture" = "undef" ]; then
+        fatal_error "This micro architecture is not supported"
+    fi
+}
+
+define_MSRs() {
+case $micro_architecture in
+    "ivy_bridge")
+        MSR_TURBO_RATIO_LIMIT_ONE_CPU=0x1ad
+        MSR_TURBO_RATIO_LIMIT_ONE_CPU_MASK=7:0
+        MSR_TURBO_RATIO_LIMIT_ALL_CPU=0x1ae
+        MSR_TURBO_RATIO_LIMIT_ALL_CPU_MASK=15:8
+    ;;
+esac
+}
+
+############# MAIN ################
+
+check_env $@
+
+detect_micro_architecture
+
+define_MSRs
 
 base_mhz=$(awk '/cpu MHz/ { print $NF; exit }' /proc/cpuinfo)
 base_mhz=${base_mhz%.*}
-turbo=$(rdmsr $MSR_TURBO_RATIO_LIMIT1 -f $MSR_TURBO_RATIO_LIMIT1_MASK -d)
+turbo_one=$(rdmsr $MSR_TURBO_RATIO_LIMIT_ONE_CPU -f $MSR_TURBO_RATIO_LIMIT_ONE_CPU_MASK -d 2>/dev/null)
+turbo_all=$(rdmsr $MSR_TURBO_RATIO_LIMIT_ALL_CPU -f $MSR_TURBO_RATIO_LIMIT_ALL_CPU_MASK -d 2>/dev/null)
 echo "CPU MHz     :" $base_mhz
-echo "Turbo MHz   :" $(( turbo * 100 )) "(10 active)"
-echo "Turbo Ratio :" $(( turbo * 100 * 100 / base_mhz ))"% (10 active)"
+echo "Turbo MHz   :" $(( turbo_one * 100 )) "(1 active)"
+echo "Turbo Ratio :" $(( turbo_one * 100 * 100 / base_mhz ))"% (1 active)"
+if [ -n "$turbo_all" ]; then
+    echo "Turbo MHz   :" $(( turbo_all * 100 )) "(all active)"
+    echo "Turbo Ratio :" $(( turbo_all * 100 * 100 / base_mhz ))"% (all active)"
+else
+    echo "This model doesn't report all cpu ratio limit"
+fi
 echo "CPU $cpu summary every $interval seconds..."
 echo
 
