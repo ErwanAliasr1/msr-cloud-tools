@@ -40,15 +40,6 @@ MSR_TURBO_RATIO_LIMIT_ONE_CPU_MASK=undef
 MSR_TURBO_RATIO_LIMIT_MAX_CPU=undef
 MSR_TURBO_RATIO_LIMIT_MAX_CPU_MASK=undef
 
-### sanity check
-family=$(awk '/cpu family/ { print $NF; exit }' /proc/cpuinfo)
-if (( family != 6 )); then
-	echo >&2 "WARNING: CPU family $family not recognized (not Intel?):"
-	head >&2 /proc/cpuinfo
-	echo >&2 "WARNING: continuining, but data is probably wrong."
-	echo >&2 "WARNING: edit this script to use the correct MSRs."
-fi
-
 ### options
 cpu=0
 interval=5
