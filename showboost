@@ -51,11 +51,16 @@ fi
 
 ### options
 cpu=0
-interval=${1:-5}
+interval=5
 
 function usage {
-	echo >&2 "USAGE: showboost [interval]"
-	exit
+    echo >&2 "USAGE: showboost [-h] [-t interval] [-m <microarch>]"
+    echo >&2 ""
+    echo >&2 "-h                  : Print this help"
+    echo >&2 "-m <microarch>      : Override with the given micro architecture"
+    echo >&2 "                      Possible values : ivy_bridge"
+    echo >&2 "-t <time>           : Define the interval time (default is $interval"
+    exit
 }
 
 function fatal_error {
@@ -64,23 +69,38 @@ function fatal_error {
 }
 
 check_env() {
-[[ "$1" == "-h" ]] && usage
+    while getopts ":ht:m:" opt; do
+        case $opt in
+            h)
+                usage
+            ;;
+            t)
+                interval=$OPTARG
+            ;;
+            m)
+                micro_architecture=$OPTARG
+            ;;
+            \?)
+                echo "Invalid option: -$OPTARG" >&2
+                usage
+            ;;
+        esac
+    done
 
-if [[ "$USER" != "root" ]]; then
-	fatal_error "needs root access. Exiting."
-fi
-
-if ! grep -q msr_class_cpu_callback /proc/kallsyms; then
-    if ! /sbin/modprobe msr; then
-        fatal_error "modprobe msr. Missing msr-tools package? Exiting."
+    if [[ "$USER" != "root" ]]; then
+        fatal_error "needs root access. Exiting."
     fi
-fi
 
-if ! which cpuid &>/dev/null; then
-    fatal_error "We need cpuid to detect your CPU"
-    exit 1
-fi
+    if ! grep -q msr_class_cpu_callback /proc/kallsyms; then
+        if ! /sbin/modprobe msr; then
+            fatal_error "modprobe msr. Missing msr-tools package? Exiting."
+        fi
+    fi
 
+    if ! which cpuid &>/dev/null; then
+        fatal_error "We need cpuid to detect your CPU"
+        exit 1
+    fi
 }
 
 detect_micro_architecture() {
@@ -89,12 +109,15 @@ detect_micro_architecture() {
         fatal_error "Current tool only works on Intel Processors"
     fi
 
-    synth=$(cpuid -1 | grep  "(synth)")
-    echo $synth | grep -qi "ivy bridge" && micro_architecture="ivy_bridge"
+    if [ "$micro_architecture" == "undef" ]; then
+        synth=$(cpuid -1 | grep  "(synth)")
+        echo $synth | grep -qi "ivy bridge" && micro_architecture="ivy_bridge"
 
-    if [ "$micro_architecture" = "undef" ]; then
-        fatal_error "This micro architecture is not supported"
+        if [ "$micro_architecture" = "undef" ]; then
+            fatal_error "This micro architecture is not supported"
+        fi
     fi
+    echo "Using $micro_architecture micro architecture"
 }
 
 define_MSRs() {
